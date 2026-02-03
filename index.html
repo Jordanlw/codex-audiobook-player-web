@@ -293,11 +293,6 @@
     </main>
 
     <script type="module">
-      import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
-
-      env.allowLocalModels = false;
-      env.useBrowserCache = true;
-
       const fileInput = document.getElementById("file-input");
       const folderInput = document.getElementById("folder-input");
       const library = document.getElementById("library");
@@ -321,7 +316,7 @@
         transcriptData: new Map(),
         activeWords: [],
         activeWordIndex: -1,
-        transcriptionController: null,
+        transcriptionWorker: null,
       };
 
       audio.preservesPitch = true;
@@ -562,54 +557,114 @@
         }
 
         stopTranscription();
-        const controller = new AbortController();
-        state.transcriptionController = controller;
+        const file = state.current.file;
+        const workerScript = `
+          import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
 
-        setStatus("Loading transcription model...");
-        const pipe = await pipeline("automatic-speech-recognition", "Xenova/whisper-tiny.en", {
-          quantized: true,
+          env.allowLocalModels = false;
+          env.useBrowserCache = true;
+
+          let controller = null;
+          let pipePromise = null;
+
+          async function getPipe() {
+            if (!pipePromise) {
+              pipePromise = pipeline("automatic-speech-recognition", "Xenova/whisper-tiny.en", {
+                quantized: true,
+              });
+            }
+            return pipePromise;
+          }
+
+          self.onmessage = async (event) => {
+            const { type, payload } = event.data || {};
+            if (type === "abort" && controller) {
+              controller.abort();
+              return;
+            }
+            if (type !== "transcribe" || !payload?.file) return;
+            controller = new AbortController();
+            try {
+              self.postMessage({ type: "status", payload: "Loading transcription model..." });
+              const pipe = await getPipe();
+              const url = URL.createObjectURL(payload.file);
+              self.postMessage({ type: "status", payload: "Transcribing audio in the background..." });
+              const result = await pipe(url, {
+                return_timestamps: "word",
+                chunk_length_s: 30,
+                stride_length_s: 5,
+                callback: (progress) => {
+                  if (progress?.status === "progress") {
+                    self.postMessage({
+                      type: "progress",
+                      payload: Math.round(progress.progress * 100),
+                    });
+                  }
+                },
+                signal: controller.signal,
+              });
+              URL.revokeObjectURL(url);
+              self.postMessage({ type: "result", payload: result });
+            } catch (error) {
+              if (controller?.signal?.aborted) {
+                self.postMessage({ type: "aborted" });
+              } else {
+                self.postMessage({ type: "error", payload: error?.message || "Unknown error" });
+              }
+            } finally {
+              controller = null;
+            }
+          };
+        `;
+
+        const worker = new Worker(URL.createObjectURL(new Blob([workerScript], { type: "application/javascript" })), {
+          type: "module",
+        });
+        state.transcriptionWorker = worker;
+        setStatus("Starting background transcription...");
+
+        worker.addEventListener("message", (event) => {
+          const { type, payload } = event.data || {};
+          if (type === "status") {
+            setStatus(payload);
+          }
+          if (type === "progress") {
+            setStatus(`Transcribing... ${payload}%`);
+          }
+          if (type === "result") {
+            const words = normalizeTranscript(payload);
+            if (words.length === 0) {
+              setStatus("Transcription completed but no timestamps were produced.");
+            } else {
+              setStatus("Transcription ready.");
+            }
+            state.transcriptData.set(fileKey(file), words);
+            renderTranscript(words);
+            worker.terminate();
+            state.transcriptionWorker = null;
+          }
+          if (type === "aborted") {
+            setStatus("Transcription stopped.");
+            worker.terminate();
+            state.transcriptionWorker = null;
+          }
+          if (type === "error") {
+            console.error(payload);
+            setStatus("Transcription failed. Check the console for details.");
+            worker.terminate();
+            state.transcriptionWorker = null;
+          }
         });
 
-        const file = state.current.file;
-        const url = URL.createObjectURL(file);
-        setStatus("Transcribing audio (this can take a while)...");
-        try {
-          const result = await pipe(url, {
-            return_timestamps: "word",
-            chunk_length_s: 30,
-            stride_length_s: 5,
-            callback: (progress) => {
-              if (progress?.status === "progress") {
-                setStatus(`Transcribing... ${(progress.progress * 100).toFixed(0)}%`);
-              }
-            },
-            signal: controller.signal,
-          });
-          const words = normalizeTranscript(result);
-          if (words.length === 0) {
-            setStatus("Transcription completed but no timestamps were produced.");
-          } else {
-            setStatus("Transcription ready.");
-          }
-          state.transcriptData.set(fileKey(file), words);
-          renderTranscript(words);
-        } catch (error) {
-          if (controller.signal.aborted) {
-            setStatus("Transcription stopped.");
-          } else {
-            console.error(error);
-            setStatus("Transcription failed. Check the console for details.");
-          }
-        } finally {
-          URL.revokeObjectURL(url);
-          state.transcriptionController = null;
-        }
+        worker.postMessage({ type: "transcribe", payload: { file } });
       }
 
       function stopTranscription() {
-        if (state.transcriptionController) {
-          state.transcriptionController.abort();
-          state.transcriptionController = null;
+        if (state.transcriptionWorker) {
+          state.transcriptionWorker.postMessage({ type: "abort" });
+          state.transcriptionWorker.terminate();
+          state.transcriptionWorker = null;
+          setStatus("Transcription stopped.");
         }
       }
 
