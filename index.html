@@ -406,6 +406,10 @@
         transcribeStatus.textContent = message;
       }
 
+      if (window.location.protocol === "file:") {
+        setStatus("Tip: file:// playback can block worker imports in some browsers. Use a local web server if needed.");
+      }
+
       function clearTranscript() {
         transcript.innerHTML = "";
         state.activeWords = [];
