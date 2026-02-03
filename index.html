@@ -317,7 +317,6 @@
         activeWords: [],
         activeWordIndex: -1,
         transcriptionWorker: null,
-        transcriptionWorkerUrl: null,
       };
 
       audio.preservesPitch = true;
@@ -560,7 +559,7 @@
         stopTranscription();
         const file = state.current.file;
         const workerScript = `
-          import { pipeline, env } from "https://esm.sh/@xenova/transformers@2.17.2";
+          import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
 
           env.allowLocalModels = false;
           env.useBrowserCache = true;
@@ -618,10 +617,10 @@
           };
         `;
 
-        const workerUrl = URL.createObjectURL(new Blob([workerScript], { type: "text/javascript" }));
-        const worker = new Worker(workerUrl, { type: "module" });
+        const worker = new Worker(URL.createObjectURL(new Blob([workerScript], { type: "application/javascript" })), {
+          type: "module",
+        });
         state.transcriptionWorker = worker;
-        state.transcriptionWorkerUrl = workerUrl;
         setStatus("Starting background transcription...");
 
         worker.addEventListener("message", (event) => {
@@ -643,29 +642,17 @@
             renderTranscript(words);
             worker.terminate();
             state.transcriptionWorker = null;
-            if (state.transcriptionWorkerUrl) {
-              URL.revokeObjectURL(state.transcriptionWorkerUrl);
-              state.transcriptionWorkerUrl = null;
-            }
           }
           if (type === "aborted") {
             setStatus("Transcription stopped.");
             worker.terminate();
             state.transcriptionWorker = null;
-            if (state.transcriptionWorkerUrl) {
-              URL.revokeObjectURL(state.transcriptionWorkerUrl);
-              state.transcriptionWorkerUrl = null;
-            }
           }
           if (type === "error") {
             console.error(payload);
             setStatus("Transcription failed. Check the console for details.");
             worker.terminate();
             state.transcriptionWorker = null;
-            if (state.transcriptionWorkerUrl) {
-              URL.revokeObjectURL(state.transcriptionWorkerUrl);
-              state.transcriptionWorkerUrl = null;
-            }
           }
         });
 
@@ -677,10 +664,6 @@
           state.transcriptionWorker.postMessage({ type: "abort" });
           state.transcriptionWorker.terminate();
           state.transcriptionWorker = null;
-          if (state.transcriptionWorkerUrl) {
-            URL.revokeObjectURL(state.transcriptionWorkerUrl);
-            state.transcriptionWorkerUrl = null;
-          }
           setStatus("Transcription stopped.");
         }
       }
