@@ -283,7 +283,7 @@
         </div>
         <div class="panel">
           <h2>Transcript</h2>
-          <div id="transcript" class="transcript"></div>
+    <div id="transcript" class="transcript"></div>  
           <p class="helper">
             Uses in-browser Whisper (transformers.js). First transcription may take time and downloads the model from the
             internet.
@@ -564,39 +564,17 @@
         stopTranscription();
         const file = state.current.file;
         const workerScript = `
+        import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
+
+          env.allowLocalModels = false;
+          env.useBrowserCache = true;
+
           let controller = null;
           let pipePromise = null;
-          let transformersReady = false;
-
-          function ensureTransformers() {
-            if (!transformersReady) {
-              const sources = [
-                "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js",
-                "https://unpkg.com/@xenova/transformers@2.17.2/dist/transformers.min.js",
-              ];
-              for (const source of sources) {
-                try {
-                  importScripts(source);
-                } catch (error) {
-                  continue;
-                }
-                if (self.transformers) {
-                  self.transformers.env.allowLocalModels = false;
-                  self.transformers.env.useBrowserCache = true;
-                  transformersReady = true;
-                  break;
-                }
-              }
-              if (!transformersReady) {
-                throw new Error("Unable to load transformers runtime in this browser context.");
-              }
-            }
-          }
 
           async function getPipe() {
-            ensureTransformers();
             if (!pipePromise) {
-              pipePromise = self.transformers.pipeline("automatic-speech-recognition", "Xenova/whisper-tiny.en", {
+              pipePromise = pipeline("automatic-speech-recognition", "Xenova/whisper-tiny.en", {
                 quantized: true,
               });
             }
@@ -644,10 +622,10 @@
           };
         `;
 
-        const workerUrl = URL.createObjectURL(new Blob([workerScript], { type: "text/javascript" }));
-        const worker = new Worker(workerUrl);
+        const worker = new Worker(URL.createObjectURL(new Blob([workerScript], { type: "application/javascript" })), {
+          type: "module",
+        });
         state.transcriptionWorker = worker;
-        state.transcriptionWorkerUrl = workerUrl;
         setStatus("Starting background transcription...");
 
         worker.addEventListener("message", (event) => {
@@ -669,29 +647,17 @@
             renderTranscript(words);
             worker.terminate();
             state.transcriptionWorker = null;
-            if (state.transcriptionWorkerUrl) {
-              URL.revokeObjectURL(state.transcriptionWorkerUrl);
-              state.transcriptionWorkerUrl = null;
-            }
           }
           if (type === "aborted") {
             setStatus("Transcription stopped.");
             worker.terminate();
             state.transcriptionWorker = null;
-            if (state.transcriptionWorkerUrl) {
-              URL.revokeObjectURL(state.transcriptionWorkerUrl);
-              state.transcriptionWorkerUrl = null;
-            }
           }
           if (type === "error") {
             console.error(payload);
             setStatus("Transcription failed. Check the console for details.");
             worker.terminate();
             state.transcriptionWorker = null;
-            if (state.transcriptionWorkerUrl) {
-              URL.revokeObjectURL(state.transcriptionWorkerUrl);
-              state.transcriptionWorkerUrl = null;
-            }
           }
         });
 
@@ -703,10 +669,6 @@
           state.transcriptionWorker.postMessage({ type: "abort" });
           state.transcriptionWorker.terminate();
           state.transcriptionWorker = null;
-          if (state.transcriptionWorkerUrl) {
-            URL.revokeObjectURL(state.transcriptionWorkerUrl);
-            state.transcriptionWorkerUrl = null;
-          }
           setStatus("Transcription stopped.");
         }
       }
