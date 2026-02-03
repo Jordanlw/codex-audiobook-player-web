@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Local Audiobook Player</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0f172a;
+        --panel: #1e293b;
+        --muted: #94a3b8;
+        --text: #e2e8f0;
+        --accent: #38bdf8;
+        --accent-2: #f97316;
+        --border: #334155;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      header {
+        padding: 2rem 2.5rem 1.5rem;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), transparent 55%);
+      }
+
+      header h1 {
+        margin: 0 0 0.5rem;
+        font-size: 1.8rem;
+      }
+
+      header p {
+        margin: 0;
+        color: var(--muted);
+        max-width: 60rem;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(260px, 320px) 1fr;
+        min-height: calc(100vh - 140px);
+      }
+
+      aside {
+        border-right: 1px solid var(--border);
+        padding: 1.5rem;
+        background: rgba(15, 23, 42, 0.6);
+        overflow-y: auto;
+      }
+
+      .panel {
+        background: var(--panel);
+        padding: 1.25rem;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        margin-bottom: 1.25rem;
+      }
+
+      .panel h2 {
+        margin: 0 0 0.75rem;
+        font-size: 1.05rem;
+      }
+
+      .controls {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+
+      input[type="file"] {
+        width: 100%;
+      }
+
+      label {
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+
+      select,
+      button {
+        padding: 0.6rem 0.75rem;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #0b1220;
+        color: var(--text);
+        cursor: pointer;
+      }
+
+      button.primary {
+        background: var(--accent);
+        color: #0b1220;
+        border: none;
+      }
+
+      button.secondary {
+        background: transparent;
+      }
+
+      .folder {
+        margin-bottom: 1rem;
+      }
+
+      .folder-title {
+        font-weight: 600;
+        font-size: 0.95rem;
+        margin-bottom: 0.4rem;
+        color: var(--accent);
+      }
+
+      .track {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.6rem;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        background: rgba(15, 23, 42, 0.65);
+        margin-bottom: 0.35rem;
+        gap: 0.5rem;
+      }
+
+      .track.active {
+        border-color: var(--accent);
+        background: rgba(56, 189, 248, 0.15);
+      }
+
+      .track button {
+        padding: 0.35rem 0.6rem;
+        font-size: 0.85rem;
+      }
+
+      .main-panel {
+        padding: 1.5rem 2rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+      }
+
+      .player {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+
+      .now-playing {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+      }
+
+      .now-playing strong {
+        font-size: 1.1rem;
+      }
+
+      .progress-row {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .progress-row input[type="range"] {
+        flex: 1;
+      }
+
+      .speed-control {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+      }
+
+      .status {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .transcript {
+        padding: 1rem;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: rgba(15, 23, 42, 0.55);
+        min-height: 200px;
+        line-height: 1.6;
+        overflow-y: auto;
+        max-height: 50vh;
+      }
+
+      .transcript span {
+        padding: 0.15rem 0.2rem;
+        border-radius: 6px;
+      }
+
+      .transcript span.active {
+        background: var(--accent-2);
+        color: #0b1220;
+      }
+
+      .helper {
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+
+      @media (max-width: 900px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+
+        aside {
+          border-right: none;
+          border-bottom: 1px solid var(--border);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Local Audiobook Player</h1>
+      <p>
+        Load multiple audiobook files, grouped by folder. Playback speed is time-stretched to preserve pitch, positions
+        are saved automatically, and transcripts are highlighted as you listen.
+      </p>
+    </header>
+    <main>
+      <aside>
+        <div class="panel controls">
+          <h2>Add audio files</h2>
+          <label>
+            Choose individual files
+            <input id="file-input" type="file" multiple accept="audio/*" />
+          </label>
+          <label>
+            Or pick a folder (recommended)
+            <input id="folder-input" type="file" multiple webkitdirectory accept="audio/*" />
+          </label>
+          <p class="helper">
+            Folder selection keeps tracks grouped and ordered. Playback progress is saved automatically in your browser.
+          </p>
+        </div>
+        <div class="panel">
+          <h2>Library</h2>
+          <div id="library"></div>
+        </div>
+      </aside>
+      <section class="main-panel">
+        <div class="panel player">
+          <div class="now-playing">
+            <span class="status">Now playing</span>
+            <strong id="now-title">No track selected</strong>
+            <span id="now-folder" class="helper"></span>
+          </div>
+          <audio id="audio" controls></audio>
+          <div class="progress-row">
+            <input id="seek" type="range" min="0" max="100" value="0" step="0.1" />
+            <span id="time-display" class="status">00:00 / 00:00</span>
+          </div>
+          <div class="progress-row">
+            <div class="speed-control">
+              <label for="speed">Speed</label>
+              <select id="speed">
+                <option value="0.75">0.75x</option>
+                <option value="0.9">0.9x</option>
+                <option value="1" selected>1x</option>
+                <option value="1.1">1.1x</option>
+                <option value="1.25">1.25x</option>
+                <option value="1.5">1.5x</option>
+                <option value="1.75">1.75x</option>
+                <option value="2">2x</option>
+              </select>
+            </div>
+            <button id="transcribe" class="primary">Transcribe &amp; highlight</button>
+            <button id="stop-transcribe" class="secondary">Stop transcription</button>
+          </div>
+          <p id="transcribe-status" class="status">Transcription is idle.</p>
+        </div>
+        <div class="panel">
+          <h2>Transcript</h2>
+          <div id="transcript" class="transcript"></div>
+          <p class="helper">
+            Uses in-browser Whisper (transformers.js). First transcription may take time and downloads the model from the
+            internet.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <script type="module">
+      import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
+
+      env.allowLocalModels = false;
+      env.useBrowserCache = true;
+
+      const fileInput = document.getElementById("file-input");
+      const folderInput = document.getElementById("folder-input");
+      const library = document.getElementById("library");
+      const audio = document.getElementById("audio");
+      const seek = document.getElementById("seek");
+      const nowTitle = document.getElementById("now-title");
+      const nowFolder = document.getElementById("now-folder");
+      const timeDisplay = document.getElementById("time-display");
+      const speedSelect = document.getElementById("speed");
+      const transcript = document.getElementById("transcript");
+      const transcribeButton = document.getElementById("transcribe");
+      const stopTranscribeButton = document.getElementById("stop-transcribe");
+      const transcribeStatus = document.getElementById("transcribe-status");
+
+      const state = {
+        groups: new Map(),
+        current: null,
+        currentFolder: null,
+        currentIndex: null,
+        progressTimer: null,
+        transcriptData: new Map(),
+        activeWords: [],
+        activeWordIndex: -1,
+        transcriptionController: null,
+      };
+
+      audio.preservesPitch = true;
+      audio.mozPreservesPitch = true;
+      audio.webkitPreservesPitch = true;
+
+      function formatTime(seconds) {
+        if (!Number.isFinite(seconds)) return "00:00";
+        const minutes = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+      }
+
+      function fileKey(file) {
+        return `${file.name}-${file.size}-${file.lastModified}`;
+      }
+
+      function groupFromFile(file) {
+        if (file.webkitRelativePath) {
+          const segments = file.webkitRelativePath.split("/");
+          segments.pop();
+          return segments.join("/") || "(root)";
+        }
+        return "Selected Files";
+      }
+
+      function addFiles(fileList) {
+        [...fileList].forEach((file) => {
+          const groupName = groupFromFile(file);
+          if (!state.groups.has(groupName)) {
+            state.groups.set(groupName, []);
+          }
+          state.groups.get(groupName).push(file);
+        });
+
+        for (const tracks of state.groups.values()) {
+          tracks.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+        }
+
+        renderLibrary();
+      }
+
+      function renderLibrary() {
+        library.innerHTML = "";
+        if (state.groups.size === 0) {
+          library.innerHTML = `<p class="helper">No files loaded yet.</p>`;
+          return;
+        }
+
+        for (const [folderName, tracks] of state.groups.entries()) {
+          const folder = document.createElement("div");
+          folder.className = "folder";
+
+          const title = document.createElement("div");
+          title.className = "folder-title";
+          title.textContent = folderName;
+
+          folder.appendChild(title);
+
+          tracks.forEach((file, index) => {
+            const item = document.createElement("div");
+            item.className = "track";
+            if (state.current && state.current.file === file) {
+              item.classList.add("active");
+            }
+
+            const name = document.createElement("span");
+            name.textContent = file.name;
+
+            const playButton = document.createElement("button");
+            playButton.textContent = "Play";
+            playButton.addEventListener("click", () => {
+              loadTrack(folderName, index);
+            });
+
+            item.appendChild(name);
+            item.appendChild(playButton);
+            folder.appendChild(item);
+          });
+
+          library.appendChild(folder);
+        }
+      }
+
+      function setStatus(message) {
+        transcribeStatus.textContent = message;
+      }
+
+      function clearTranscript() {
+        transcript.innerHTML = "";
+        state.activeWords = [];
+        state.activeWordIndex = -1;
+      }
+
+      async function loadTrack(folderName, index) {
+        const tracks = state.groups.get(folderName);
+        if (!tracks || !tracks[index]) return;
+        const file = tracks[index];
+
+        state.current = { file };
+        state.currentFolder = folderName;
+        state.currentIndex = index;
+        renderLibrary();
+
+        const url = URL.createObjectURL(file);
+        audio.src = url;
+        audio.playbackRate = Number(speedSelect.value);
+        nowTitle.textContent = file.name;
+        nowFolder.textContent = folderName;
+
+        const storedTime = localStorage.getItem(`abp:${fileKey(file)}`);
+        audio.addEventListener(
+          "loadedmetadata",
+          () => {
+            if (storedTime) {
+              const time = Number(storedTime);
+              if (Number.isFinite(time) && time < audio.duration) {
+                audio.currentTime = time;
+              }
+            }
+            updateTimeDisplay();
+          },
+          { once: true }
+        );
+
+        audio.play().catch(() => {
+          // User gesture might be required.
+        });
+
+        clearTranscript();
+        const cachedTranscript = state.transcriptData.get(fileKey(file));
+        if (cachedTranscript) {
+          renderTranscript(cachedTranscript);
+          setStatus("Transcript loaded from cache.");
+        } else {
+          setStatus("Transcription is idle.");
+        }
+      }
+
+      function updateTimeDisplay() {
+        timeDisplay.textContent = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
+        if (Number.isFinite(audio.duration)) {
+          seek.max = audio.duration.toString();
+          seek.value = audio.currentTime.toString();
+        }
+      }
+
+      function saveProgress() {
+        if (!state.current) return;
+        const key = `abp:${fileKey(state.current.file)}`;
+        localStorage.setItem(key, audio.currentTime.toString());
+      }
+
+      function renderTranscript(words) {
+        transcript.innerHTML = "";
+        state.activeWords = words;
+        words.forEach((word, index) => {
+          const span = document.createElement("span");
+          span.textContent = word.text;
+          span.dataset.index = index;
+          transcript.appendChild(span);
+          transcript.append(" ");
+        });
+      }
+
+      function highlightWordByTime(time) {
+        if (!state.activeWords.length) return;
+        let low = 0;
+        let high = state.activeWords.length - 1;
+        let match = -1;
+        while (low <= high) {
+          const mid = Math.floor((low + high) / 2);
+          const word = state.activeWords[mid];
+          if (time >= word.start && time <= word.end) {
+            match = mid;
+            break;
+          }
+          if (time < word.start) {
+            high = mid - 1;
+          } else {
+            low = mid + 1;
+          }
+        }
+
+        if (match === -1) return;
+        if (match === state.activeWordIndex) return;
+
+        const prev = transcript.querySelector("span.active");
+        if (prev) prev.classList.remove("active");
+
+        const currentSpan = transcript.querySelector(`span[data-index="${match}"]`);
+        if (currentSpan) {
+          currentSpan.classList.add("active");
+          currentSpan.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
+        state.activeWordIndex = match;
+      }
+
+      function distributeWords(text, duration) {
+        const words = text.split(/\s+/).filter(Boolean);
+        if (!words.length || !Number.isFinite(duration) || duration <= 0) return [];
+        const step = duration / words.length;
+        return words.map((word, index) => ({
+          text: word,
+          start: index * step,
+          end: (index + 1) * step,
+        }));
+      }
+
+      function normalizeTranscript(result) {
+        if (result?.chunks?.length) {
+          return result.chunks.map((chunk) => ({
+            text: chunk.text.trim(),
+            start: chunk.timestamps?.[0] ?? 0,
+            end: chunk.timestamps?.[1] ?? chunk.timestamps?.[0] ?? 0,
+          }));
+        }
+
+        if (result?.segments?.length) {
+          return result.segments.map((segment) => ({
+            text: segment.text.trim(),
+            start: segment.start,
+            end: segment.end,
+          }));
+        }
+
+        if (result?.text) {
+          return distributeWords(result.text, audio.duration);
+        }
+
+        return [];
+      }
+
+      async function transcribeCurrent() {
+        if (!state.current) {
+          setStatus("Select a track before transcribing.");
+          return;
+        }
+
+        stopTranscription();
+        const controller = new AbortController();
+        state.transcriptionController = controller;
+
+        setStatus("Loading transcription model...");
+        const pipe = await pipeline("automatic-speech-recognition", "Xenova/whisper-tiny.en", {
+          quantized: true,
+        });
+
+        const file = state.current.file;
+        const url = URL.createObjectURL(file);
+        setStatus("Transcribing audio (this can take a while)...");
+        try {
+          const result = await pipe(url, {
+            return_timestamps: "word",
+            chunk_length_s: 30,
+            stride_length_s: 5,
+            callback: (progress) => {
+              if (progress?.status === "progress") {
+                setStatus(`Transcribing... ${(progress.progress * 100).toFixed(0)}%`);
+              }
+            },
+            signal: controller.signal,
+          });
+          const words = normalizeTranscript(result);
+          if (words.length === 0) {
+            setStatus("Transcription completed but no timestamps were produced.");
+          } else {
+            setStatus("Transcription ready.");
+          }
+          state.transcriptData.set(fileKey(file), words);
+          renderTranscript(words);
+        } catch (error) {
+          if (controller.signal.aborted) {
+            setStatus("Transcription stopped.");
+          } else {
+            console.error(error);
+            setStatus("Transcription failed. Check the console for details.");
+          }
+        } finally {
+          URL.revokeObjectURL(url);
+          state.transcriptionController = null;
+        }
+      }
+
+      function stopTranscription() {
+        if (state.transcriptionController) {
+          state.transcriptionController.abort();
+          state.transcriptionController = null;
+        }
+      }
+
+      fileInput.addEventListener("change", (event) => {
+        addFiles(event.target.files);
+        fileInput.value = "";
+      });
+
+      folderInput.addEventListener("change", (event) => {
+        addFiles(event.target.files);
+        folderInput.value = "";
+      });
+
+      speedSelect.addEventListener("change", () => {
+        audio.playbackRate = Number(speedSelect.value);
+      });
+
+      audio.addEventListener("timeupdate", () => {
+        updateTimeDisplay();
+        if (!state.progressTimer || Date.now() - state.progressTimer > 3000) {
+          saveProgress();
+          state.progressTimer = Date.now();
+        }
+        highlightWordByTime(audio.currentTime);
+      });
+
+      audio.addEventListener("ended", () => {
+        if (!state.currentFolder) return;
+        const tracks = state.groups.get(state.currentFolder) || [];
+        const nextIndex = state.currentIndex + 1;
+        if (tracks[nextIndex]) {
+          loadTrack(state.currentFolder, nextIndex);
+        }
+      });
+
+      audio.addEventListener("loadedmetadata", updateTimeDisplay);
+
+      seek.addEventListener("input", () => {
+        audio.currentTime = Number(seek.value);
+      });
+
+      transcribeButton.addEventListener("click", transcribeCurrent);
+      stopTranscribeButton.addEventListener("click", stopTranscription);
+
+      renderLibrary();
+    </script>
+  </body>
+</html>
